@@ -3,7 +3,6 @@ import {
   TransactionStateError,
   RailError,
   ConfigError,
-  ConfigurationError,
   ValidationError,
   SepProtocolError,
   NetworkError,
@@ -81,12 +80,6 @@ describe('ConfigError', () => {
     const err = new ConfigError('missing secret');
     expect(err.statusCode).toBe(500);
     expect(err.errorCode).toBe('INVALID_CONFIG');
-  });
-
-  it('supports backward compatibility via ConfigurationError alias', () => {
-    const err = new ConfigurationError('legacy error');
-    expect(err).toBeInstanceOf(ConfigError);
-    expect(err.statusCode).toBe(500);
   });
 });
 

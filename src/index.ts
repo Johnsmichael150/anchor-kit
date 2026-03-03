@@ -6,5 +6,6 @@
  */
 
 export * from './types';
+export { AnchorInstance, createAnchor } from './core/factory';
 export * from './core/errors';
 export * as utils from './utils';

@@ -5,7 +5,7 @@
     "": {
       "name": "anchor-kit",
       "dependencies": {
-        "@stellar/stellar-sdk": "^14.5.0",
+        "@stellar/stellar-sdk": "^14.6.0",
         "@types/bcryptjs": "^3.0.0",
         "@types/jsonwebtoken": "^9.0.10",
         "bcryptjs": "^3.0.3",
@@ -211,9 +211,9 @@
 
     "@stellar/js-xdr": ["@stellar/js-xdr@3.1.2", "", {}, "sha512-VVolPL5goVEIsvuGqDc5uiKxV03lzfWdvYg1KikvwheDmTBO68CKDji3bAZ/kppZrx5iTA8z3Ld5yuytcvhvOQ=="],
 
-    "@stellar/stellar-base": ["@stellar/stellar-base@14.0.4", "", { "dependencies": { "@noble/curves": "^1.9.6", "@stellar/js-xdr": "^3.1.2", "base32.js": "^0.1.0", "bignumber.js": "^9.3.1", "buffer": "^6.0.3", "sha.js": "^2.4.12" } }, "sha512-UbNW6zbdOBXJwLAV2mMak0bIC9nw3IZVlQXkv2w2dk1jgCbJjy3oRVC943zeGE5JAm0Z9PHxrIjmkpGhayY7kw=="],
+    "@stellar/stellar-base": ["@stellar/stellar-base@14.1.0", "", { "dependencies": { "@noble/curves": "^1.9.6", "@stellar/js-xdr": "^3.1.2", "base32.js": "^0.1.0", "bignumber.js": "^9.3.1", "buffer": "^6.0.3", "sha.js": "^2.4.12" } }, "sha512-A8kFli6QGy22SRF45IjgPAJfUNGjnI+R7g4DF5NZYVsD1kGf7B4ITyc4OPclLV9tqNI4/lXxafGEw0JEUbHixw=="],
 
-    "@stellar/stellar-sdk": ["@stellar/stellar-sdk@14.5.0", "", { "dependencies": { "@stellar/stellar-base": "^14.0.4", "axios": "^1.13.3", "bignumber.js": "^9.3.1", "commander": "^14.0.2", "eventsource": "^2.0.2", "feaxios": "^0.0.23", "randombytes": "^2.1.0", "toml": "^3.0.0", "urijs": "^1.19.1" }, "bin": { "stellar-js": "bin/stellar-js" } }, "sha512-Uzjq+An/hUA+Q5ERAYPtT0+MMiwWnYYWMwozmZMjxjdL2MmSjucBDF8Q04db6K/ekU4B5cHuOfsdlrfaxQYblw=="],
+    "@stellar/stellar-sdk": ["@stellar/stellar-sdk@14.6.0", "", { "dependencies": { "@stellar/stellar-base": "^14.1.0", "axios": "^1.13.3", "bignumber.js": "^9.3.1", "commander": "^14.0.2", "eventsource": "^2.0.2", "feaxios": "^0.0.23", "randombytes": "^2.1.0", "toml": "^3.0.0", "urijs": "^1.19.1" }, "bin": { "stellar-js": "bin/stellar-js" } }, "sha512-uAFI32VsrKYUL/b5P7LM80M0N+amLPLJJ/zEibwcCwe5jbbXht7AUNVekyE6WFDZaUtqDtIWb7R+rJ+xk9qRRA=="],
 
     "@types/bcryptjs": ["@types/bcryptjs@3.0.0", "", { "dependencies": { "bcryptjs": "*" } }, "sha512-WRZOuCuaz8UcZZE4R5HXTco2goQSI2XxjGY3hbM/xDvwmqFWd4ivooImsMx65OKM6CtNKbnZ5YL+YwAwK7c1dg=="],
 

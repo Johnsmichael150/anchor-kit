@@ -924,7 +924,9 @@ describe('AnchorKitConfig Type Tests', () => {
             },
             {
               id: 'flutterwave-rail',
-              config: { secretKey: (globalThis as any).process?.env?.FLW_SECRET_KEY },
+              config: {
+                secretKey: typeof process !== 'undefined' ? process.env?.FLW_SECRET_KEY : undefined,
+              },
             },
           ],
         },

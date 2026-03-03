@@ -1,21 +1,22 @@
-import { CryptoUtils } from './crypto';
-
 /**
  * IdempotencyUtils helper object
  * Provides helpers for generating idempotency keys and extracting
  * idempotency header values from different header shapes.
  */
+type HeaderValue = string | string[] | undefined | null;
+type HeadersRecord = Record<string, HeaderValue>;
+type HeadersGetter = { get(name: string): string | null | undefined };
+export type HeadersLike = Headers | HeadersGetter | HeadersRecord;
+
 export const IdempotencyUtils = {
   /**
-   * Generate a reasonably unique idempotency key.
-   * Format: [prefix-]<timestamp-base36>-<randomString>
+   * Generate a standardized UUID v4 idempotency key.
    *
    * @param prefix Optional prefix to help grouping keys
    */
   generateIdempotencyKey(prefix?: string): string {
-    const ts = Date.now().toString(36);
-    const rand = CryptoUtils.generateRandomString(12);
-    return `${prefix ? `${prefix}-` : ''}${ts}-${rand}`;
+    const uuid = crypto.randomUUID();
+    return prefix ? `${prefix}-${uuid}` : uuid;
   },
 
   /**
@@ -26,7 +27,10 @@ export const IdempotencyUtils = {
    * Accepts: Fetch `Headers`, a Node/express `IncomingHttpHeaders`-like
    * object, or a plain record where values may be string | string[] | undefined.
    */
-  extractIdempotencyHeader(headers: any, headerName = 'Idempotency-Key'): string | null {
+  extractIdempotencyHeader(
+    headers: HeadersLike | null | undefined,
+    headerName = 'Idempotency-Key',
+  ): string | null {
     if (!headers) return null;
 
     // Fetch Headers instance
@@ -38,11 +42,12 @@ export const IdempotencyUtils = {
     }
 
     // Plain object (case-insensitive key lookup)
-    const keys = Object.keys(headers || {});
+    const headerRecord = headers as HeadersRecord;
+    const keys = Object.keys(headerRecord);
     const foundKey = keys.find((k) => k.toLowerCase() === headerName.toLowerCase());
     if (!foundKey) return null;
 
-    const val = headers[foundKey];
+    const val = headerRecord[foundKey];
     if (Array.isArray(val)) {
       const found = val.map((s) => (s == null ? '' : String(s).trim())).find((s) => s.length > 0);
       return found ?? null;

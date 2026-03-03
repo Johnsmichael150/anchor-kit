@@ -66,4 +66,17 @@ export const ValidationUtils = {
     if (!value) return false;
     return /^-?\d+(\.\d+)?$/.test(value);
   },
+
+  /**
+   * Validates if a string is a valid Stellar public key (starting with 'G').
+   *
+   * @param address The address to validate.
+   * @returns true if valid, false otherwise.
+   */
+  isValidStellarAddress(address: string): boolean {
+    if (!address || typeof address !== 'string') return false;
+    // Basic format check to avoid loading full SDK if obviously wrong
+    if (!/^G[A-Z2-7]{55}$/.test(address)) return false;
+    return true;
+  },
 };

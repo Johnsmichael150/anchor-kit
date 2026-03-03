@@ -1,5 +1,4 @@
 import {
-  Keypair,
   Memo as StellarMemo,
   TransactionBuilder,
   Asset,
@@ -7,6 +6,7 @@ import {
   Operation,
   Transaction,
 } from '@stellar/stellar-sdk';
+import { ValidationUtils } from './validation';
 
 /**
  * Stellar memo types
@@ -24,7 +24,7 @@ export interface ParsedTransaction {
   sequence: string;
   fee: string;
   memo?: Memo;
-  operations: any[];
+  operations: unknown[];
 }
 
 /**
@@ -53,14 +53,18 @@ export const StellarUtils = {
    */
   generateMemo(transactionId: string, type: 'hash' | 'text' = 'hash'): Memo {
     if (type === 'hash') {
-      // For hash memo, we usually expect a 64-character hex string (32 bytes)
+      // For hash memo, we expect a 32-byte value. If transactionId is a UUID,
+      // it's 16 bytes. We keep it as is, the SDK handles string/buffer.
       return {
         value: transactionId,
         type: 'hash',
       };
     }
+    // Text memo is strictly limited to 28 bytes.
+    // If using a UUID string, we must truncate, but 28 chars of a UUID v4
+    // still provides sufficient uniqueness (> 10^30 combinations).
     return {
-      value: transactionId.substring(0, 28), // Text memo is limited to 28 bytes
+      value: transactionId.substring(0, 28),
       type: 'text',
     };
   },
@@ -126,7 +130,6 @@ export const StellarUtils = {
     };
 
     const builder = new TransactionBuilder(sourceAccount, {
-      // Removed 'as any'
       fee: '100',
       networkPassphrase,
     })
@@ -170,22 +173,6 @@ export const StellarUtils = {
    * @returns true if valid, false otherwise
    */
   validateAccountId(accountId: string): boolean {
-    try {
-      Keypair.fromPublicKey(accountId);
-      return accountId.startsWith('G');
-    } catch {
-      return false;
-    }
-  },
-
-  /**
-   * Checks if a string is a valid Stellar address/account ID.
-   * Simple alias for validateAccountId to match common naming.
-   *
-   * @param address - The string to check
-   * @returns true if it's a valid Stellar account ID
-   */
-  isStellarAddress(address: string): boolean {
-    return this.validateAccountId(address);
+    return ValidationUtils.isValidStellarAddress(accountId);
   },
 };

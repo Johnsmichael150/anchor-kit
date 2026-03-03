@@ -1,6 +1,8 @@
 import { expect, test, describe } from 'bun:test';
 import { IdempotencyUtils } from '../../src/utils/idempotency';
 
+type IdempotencyHeaderValue = string | string[] | null | undefined;
+
 describe('IdempotencyUtils', () => {
   test('generateIdempotencyKey returns a string and is unique', () => {
     const a = IdempotencyUtils.generateIdempotencyKey('tx');
@@ -24,20 +26,22 @@ describe('IdempotencyUtils', () => {
   });
 
   test('extractIdempotencyHeader handles plain objects case-insensitively', () => {
-    const obj: Record<string, any> = { 'idempotency-key': 'value-1' };
+    const obj: Record<string, IdempotencyHeaderValue> = { 'idempotency-key': 'value-1' };
     expect(IdempotencyUtils.extractIdempotencyHeader(obj)).toBe('value-1');
   });
 
   test('extractIdempotencyHeader handles array values and empties', () => {
-    const obj: Record<string, any> = { 'Idempotency-Key': ['', '   ', 'first-non-empty'] };
+    const obj: Record<string, IdempotencyHeaderValue> = {
+      'Idempotency-Key': ['', '   ', 'first-non-empty'],
+    };
     expect(IdempotencyUtils.extractIdempotencyHeader(obj)).toBe('first-non-empty');
 
-    const obj2: Record<string, any> = { 'Idempotency-Key': ['', '   '] };
+    const obj2: Record<string, IdempotencyHeaderValue> = { 'Idempotency-Key': ['', '   '] };
     expect(IdempotencyUtils.extractIdempotencyHeader(obj2)).toBeNull();
   });
 
   test('extractIdempotencyHeader returns null for empty string', () => {
-    const obj: Record<string, any> = { 'Idempotency-Key': '   ' };
+    const obj: Record<string, IdempotencyHeaderValue> = { 'Idempotency-Key': '   ' };
     expect(IdempotencyUtils.extractIdempotencyHeader(obj)).toBeNull();
   });
 });

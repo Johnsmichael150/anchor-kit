@@ -34,12 +34,6 @@ export class ConfigError extends AnchorKitError {
 }
 
 /**
- * Alias for ConfigError to maintain backward compatibility.
- * @deprecated Use ConfigError instead.
- */
-export const ConfigurationError = ConfigError;
-
-/**
  * Error raised when a request fails validation (e.g. invalid parameters).
  */
 export class ValidationError extends AnchorKitError {

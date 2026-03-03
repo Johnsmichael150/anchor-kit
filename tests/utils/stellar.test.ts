@@ -1,20 +1,34 @@
 import { describe, it, expect } from 'vitest';
 import { StellarUtils } from '@/utils/stellar.ts';
 
+interface ParsedPaymentOperation {
+  type: string;
+  amount: string;
+  asset?: {
+    isNative(): boolean;
+  };
+}
+
+function asPaymentOperation(operation: unknown): ParsedPaymentOperation {
+  if (!operation || typeof operation !== 'object') {
+    throw new Error('Unexpected operation payload');
+  }
+  return operation as ParsedPaymentOperation;
+}
+
 describe('StellarUtils', () => {
   const validAccountId = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
   const invalidAccountId = 'INVALID_ACCOUNT_ID';
 
-  describe('validateAccountId() / isStellarAddress()', () => {
+  describe('validateAccountId()', () => {
     it('should return true for valid account IDs', () => {
       expect(StellarUtils.validateAccountId(validAccountId)).toBe(true);
-      expect(StellarUtils.isStellarAddress(validAccountId)).toBe(true);
     });
 
     it('should return false for invalid account IDs', () => {
       expect(StellarUtils.validateAccountId(invalidAccountId)).toBe(false);
-      expect(StellarUtils.isStellarAddress('SABC...')).toBe(false); // Seed not allowed
-      expect(StellarUtils.isStellarAddress('')).toBe(false);
+      expect(StellarUtils.validateAccountId('SABC...')).toBe(false); // Seed not allowed
+      expect(StellarUtils.validateAccountId('')).toBe(false);
     });
   });
 
@@ -56,9 +70,10 @@ describe('StellarUtils', () => {
       expect(parsed.memo?.value).toBe(params.memo.value);
       expect(parsed.memo?.type).toBe(params.memo.type);
       expect(parsed.operations.length).toBe(1);
-      expect(parsed.operations[0].type).toBe('payment');
+      const operation = asPaymentOperation(parsed.operations[0]);
+      expect(operation.type).toBe('payment');
       // Stellar internal amounts are typically formatted to 7 decimal places
-      expect(parseFloat(parsed.operations[0].amount)).toBe(parseFloat(params.amount));
+      expect(parseFloat(operation.amount)).toBe(parseFloat(params.amount));
     });
 
     it('should build a native XLM payment', async () => {
@@ -72,8 +87,9 @@ describe('StellarUtils', () => {
 
       const xdr = await StellarUtils.buildPaymentXdr(params);
       const parsed = StellarUtils.parseXdrTransaction(xdr);
-      expect(parsed.operations[0].asset.isNative()).toBe(true);
-      expect(parseFloat(parsed.operations[0].amount)).toBe(parseFloat(params.amount));
+      const operation = asPaymentOperation(parsed.operations[0]);
+      expect(operation.asset?.isNative()).toBe(true);
+      expect(parseFloat(operation.amount)).toBe(parseFloat(params.amount));
     });
 
     it('should throw when parsing invalid XDR', () => {
