@@ -77,6 +77,7 @@ export class AnchorInstance {
         new TransactionWatcher(this.database, this.queue, {
           pollIntervalMs: frameworkConfig.watchers?.pollIntervalMs ?? 15000,
           transactionTimeoutMs: frameworkConfig.watchers?.transactionTimeoutMs ?? 300000,
+          retentionDays: frameworkConfig.watchers?.retentionDays ?? 90,
         }),
       ];
     }
@@ -207,6 +208,18 @@ export class AnchorInstance {
         id: watcherTaskIdValue,
         status: 'processed',
       });
+      return;
+    }
+
+    if (job.type === 'cleanup_records') {
+      const retentionDaysValue = job.payload.retentionDays;
+      if (typeof retentionDaysValue !== 'number' || !Number.isFinite(retentionDaysValue)) {
+        return;
+      }
+
+      const cutoffMs = Date.now() - retentionDaysValue * 24 * 60 * 60 * 1000;
+      const cutoffIso = new Date(cutoffMs).toISOString();
+      await database.cleanupOldRecords(cutoffIso);
       return;
     }
   }

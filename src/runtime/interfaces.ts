@@ -109,10 +109,11 @@ export interface DatabaseAdapter {
     errorMessage?: string;
   }): Promise<void>;
   countProcessedWatcherTasks(): Promise<number>;
+  cleanupOldRecords(cutoffIso: string): Promise<void>;
 }
 
 export interface QueueJob {
-  type: 'expire_transaction' | 'process_watcher_task';
+  type: 'expire_transaction' | 'process_watcher_task' | 'cleanup_records';
   payload: Record<string, unknown>;
 }
 
@@ -133,6 +134,7 @@ export interface WebhookProcessor {
     eventId: string;
     provider: string;
     payload: Record<string, unknown>;
+    rawBody: string;
     signature?: string;
   }): Promise<{ duplicate: boolean; eventId: string }>;
 }

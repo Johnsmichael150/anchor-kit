@@ -35,6 +35,7 @@ export class DefaultWebhookProcessor implements WebhookProcessor {
     eventId: string;
     provider: string;
     payload: Record<string, unknown>;
+    rawBody: string;
     signature?: string;
   }): Promise<{ duplicate: boolean; eventId: string }> {
     this.verifySignatureIfEnabled(input);
@@ -83,6 +84,7 @@ export class DefaultWebhookProcessor implements WebhookProcessor {
 
   private verifySignatureIfEnabled(input: {
     payload: Record<string, unknown>;
+    rawBody: string;
     signature?: string;
   }): void {
     const verifyEnabled = this.config.security.verifyWebhookSignatures ?? true;
@@ -102,9 +104,7 @@ export class DefaultWebhookProcessor implements WebhookProcessor {
       throw new Error('Missing webhook signature');
     }
 
-    const expected = createHmac('sha256', webhookSecret)
-      .update(JSON.stringify(input.payload))
-      .digest('hex');
+    const expected = createHmac('sha256', webhookSecret).update(input.rawBody).digest('hex');
 
     if (!safeEquals(expected, input.signature)) {
       throw new Error('Invalid webhook signature');

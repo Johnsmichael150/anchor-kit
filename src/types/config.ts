@@ -438,6 +438,60 @@ export interface FrameworkConfig {
      * @optional - defaults to 300000
      */
     transactionTimeoutMs?: number;
+
+    /**
+     * Retention window in days for watcher logs and operational records.
+     * @optional - defaults to 90
+     */
+    retentionDays?: number;
+  };
+
+  /**
+   * HTTP guardrails for SDK route handlers.
+   * @optional
+   */
+  http?: {
+    /**
+     * Maximum accepted request body size in bytes.
+     * @optional - defaults to 1048576 (1 MB)
+     */
+    maxBodyBytes?: number;
+  };
+
+  /**
+   * In-process per-route rate limiting.
+   * @optional
+   */
+  rateLimit?: {
+    /**
+     * Sliding window duration in milliseconds.
+     * @optional - defaults to 60000
+     */
+    windowMs?: number;
+
+    /**
+     * Max requests per window for auth challenge endpoint.
+     * @optional - defaults to 30
+     */
+    authChallengeMax?: number;
+
+    /**
+     * Max requests per window for auth token endpoint.
+     * @optional - defaults to 30
+     */
+    authTokenMax?: number;
+
+    /**
+     * Max requests per window for webhook endpoint.
+     * @optional - defaults to 120
+     */
+    webhookMax?: number;
+
+    /**
+     * Max requests per window for deposit endpoint.
+     * @optional - defaults to 60
+     */
+    depositMax?: number;
   };
 
   /**

@@ -77,6 +77,17 @@ export class AnchorConfig {
               enabled: input.framework.watchers?.enabled ?? true,
               pollIntervalMs: input.framework.watchers?.pollIntervalMs ?? 15000,
               transactionTimeoutMs: input.framework.watchers?.transactionTimeoutMs ?? 300000,
+              retentionDays: input.framework.watchers?.retentionDays ?? 90,
+            },
+            http: {
+              maxBodyBytes: input.framework.http?.maxBodyBytes ?? 1024 * 1024,
+            },
+            rateLimit: {
+              windowMs: input.framework.rateLimit?.windowMs ?? 60000,
+              authChallengeMax: input.framework.rateLimit?.authChallengeMax ?? 30,
+              authTokenMax: input.framework.rateLimit?.authTokenMax ?? 30,
+              webhookMax: input.framework.rateLimit?.webhookMax ?? 120,
+              depositMax: input.framework.rateLimit?.depositMax ?? 60,
             },
           }
         : undefined,
@@ -239,6 +250,27 @@ export class AnchorConfig {
       framework.watchers.pollIntervalMs < 10
     ) {
       throw new ConfigError('framework.watchers.pollIntervalMs must be >= 10');
+    }
+
+    if (
+      framework.http &&
+      framework.http.maxBodyBytes !== undefined &&
+      framework.http.maxBodyBytes < 1024
+    ) {
+      throw new ConfigError('framework.http.maxBodyBytes must be >= 1024');
+    }
+
+    if (framework.rateLimit) {
+      const rateValues = [
+        framework.rateLimit.windowMs,
+        framework.rateLimit.authChallengeMax,
+        framework.rateLimit.authTokenMax,
+        framework.rateLimit.webhookMax,
+        framework.rateLimit.depositMax,
+      ];
+      if (rateValues.some((value) => value !== undefined && value <= 0)) {
+        throw new ConfigError('framework.rateLimit values must be > 0');
+      }
     }
 
     // Validate database URL loosely (could be a connection string or file path)

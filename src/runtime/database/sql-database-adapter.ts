@@ -620,6 +620,39 @@ export class SqlDatabaseAdapter implements DatabaseAdapter {
     return Number(response.rows[0]?.count ?? 0);
   }
 
+  public async cleanupOldRecords(cutoffIso: string): Promise<void> {
+    if (this.sqlite) {
+      this.sqlite.prepare('DELETE FROM auth_challenges WHERE expires_at < ?').run(cutoffIso);
+      this.sqlite.prepare('DELETE FROM idempotency_keys WHERE created_at < ?').run(cutoffIso);
+      this.sqlite
+        .prepare(
+          "DELETE FROM webhook_events WHERE created_at < ? AND status IN ('processed', 'failed')",
+        )
+        .run(cutoffIso);
+      this.sqlite
+        .prepare(
+          "DELETE FROM watcher_tasks WHERE created_at < ? AND status IN ('processed', 'failed')",
+        )
+        .run(cutoffIso);
+      return;
+    }
+
+    await this.requirePostgres().query('DELETE FROM auth_challenges WHERE expires_at < $1', [
+      cutoffIso,
+    ]);
+    await this.requirePostgres().query('DELETE FROM idempotency_keys WHERE created_at < $1', [
+      cutoffIso,
+    ]);
+    await this.requirePostgres().query(
+      "DELETE FROM webhook_events WHERE created_at < $1 AND status IN ('processed', 'failed')",
+      [cutoffIso],
+    );
+    await this.requirePostgres().query(
+      "DELETE FROM watcher_tasks WHERE created_at < $1 AND status IN ('processed', 'failed')",
+      [cutoffIso],
+    );
+  }
+
   private mapTransactionRow(row: Record<string, unknown>): InteractiveTransactionRecord {
     return {
       id: String(row.id),

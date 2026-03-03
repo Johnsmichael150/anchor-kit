@@ -4,6 +4,7 @@ import type { DatabaseAdapter, QueueAdapter, Watcher } from '@/runtime/interface
 interface TransactionWatcherOptions {
   pollIntervalMs: number;
   transactionTimeoutMs: number;
+  retentionDays: number;
 }
 
 export class TransactionWatcher implements Watcher {
@@ -13,6 +14,7 @@ export class TransactionWatcher implements Watcher {
   private readonly queue: QueueAdapter;
   private readonly pollIntervalMs: number;
   private readonly transactionTimeoutMs: number;
+  private readonly retentionDays: number;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(database: DatabaseAdapter, queue: QueueAdapter, options: TransactionWatcherOptions) {
@@ -20,6 +22,7 @@ export class TransactionWatcher implements Watcher {
     this.queue = queue;
     this.pollIntervalMs = options.pollIntervalMs;
     this.transactionTimeoutMs = options.transactionTimeoutMs;
+    this.retentionDays = options.retentionDays;
   }
 
   public async start(): Promise<void> {
@@ -61,6 +64,13 @@ export class TransactionWatcher implements Watcher {
     await this.queue.enqueue({
       type: 'process_watcher_task',
       payload: { watcherTaskId },
+    });
+
+    await this.queue.enqueue({
+      type: 'cleanup_records',
+      payload: {
+        retentionDays: this.retentionDays,
+      },
     });
   }
 }

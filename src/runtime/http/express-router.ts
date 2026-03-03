@@ -1,9 +1,18 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import jwt from 'jsonwebtoken';
+import {
+  Account,
+  Keypair,
+  Operation,
+  StrKey,
+  Transaction,
+  TransactionBuilder,
+} from '@stellar/stellar-sdk';
 import { ValidationError } from '@/core/errors.ts';
 import type { AnchorConfig } from '@/core/config.ts';
 import type { DatabaseAdapter, WebhookProcessor } from '@/runtime/interfaces.ts';
+import { InMemoryRateLimiter, type RateLimitRule } from '@/runtime/http/rate-limiter.ts';
 
 export type ExpressLikeMiddleware = (
   req: IncomingMessage,
@@ -26,6 +35,12 @@ interface JsonResponse {
   body: Record<string, unknown>;
 }
 
+interface RawBodyCarrier {
+  rawBody?: string;
+}
+
+const SEP10_NONCE_OP = 'anchor_auth';
+
 function sendJson(res: ServerResponse, status: number, body: Record<string, unknown>): void {
   if (!res.headersSent) {
     res.statusCode = status;
@@ -38,18 +53,38 @@ function parseUrl(req: IncomingMessage): URL {
   return new URL(req.url ?? '/', 'http://localhost');
 }
 
-async function readRawBody(req: IncomingMessage): Promise<string> {
+function getBodyByteLength(value: string): number {
+  return Buffer.byteLength(value, 'utf8');
+}
+
+async function readRawBody(req: IncomingMessage, maxBodyBytes: number): Promise<string> {
+  const reqWithRaw = req as IncomingMessage & RawBodyCarrier;
+  if (typeof reqWithRaw.rawBody === 'string') {
+    if (getBodyByteLength(reqWithRaw.rawBody) > maxBodyBytes) {
+      throw new ValidationError(`Request body too large. Max ${maxBodyBytes} bytes`);
+    }
+    return reqWithRaw.rawBody;
+  }
+
   const bodyFromFramework = (req as IncomingMessage & { body?: unknown }).body;
   if (bodyFromFramework !== undefined) {
-    if (typeof bodyFromFramework === 'string') {
-      return bodyFromFramework;
+    const serialized =
+      typeof bodyFromFramework === 'string' ? bodyFromFramework : JSON.stringify(bodyFromFramework);
+    if (getBodyByteLength(serialized) > maxBodyBytes) {
+      throw new ValidationError(`Request body too large. Max ${maxBodyBytes} bytes`);
     }
-    return JSON.stringify(bodyFromFramework);
+    return serialized;
   }
 
   const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
   for await (const chunk of req) {
-    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    const chunkBuffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+    totalBytes += chunkBuffer.byteLength;
+    if (totalBytes > maxBodyBytes) {
+      throw new ValidationError(`Request body too large. Max ${maxBodyBytes} bytes`);
+    }
+    chunks.push(chunkBuffer);
   }
   return Buffer.concat(chunks).toString('utf8');
 }
@@ -90,15 +125,93 @@ function endpointPath(req: IncomingMessage): string {
   return parseUrl(req).pathname;
 }
 
+function extractClientIdentifier(req: IncomingMessage): string {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const leftMost = typeof forwardedFor === 'string' ? forwardedFor.split(',')[0].trim() : null;
+  const socketIp = req.socket?.remoteAddress;
+  return leftMost || socketIp || 'unknown';
+}
+
+function hasValidSignature(transaction: Transaction, publicKey: string): boolean {
+  const keypair = Keypair.fromPublicKey(publicKey);
+  const hash = transaction.hash();
+
+  for (const signature of transaction.signatures) {
+    try {
+      if (keypair.verify(hash, signature.signature())) {
+        return true;
+      }
+    } catch {
+      // skip invalid signature entries
+    }
+  }
+
+  return false;
+}
+
+function extractNonceFromChallenge(transaction: Transaction): string | null {
+  for (const operation of transaction.operations) {
+    if (operation.type !== 'manageData') {
+      continue;
+    }
+
+    const manageDataOp = operation as unknown as {
+      name?: unknown;
+      value?: unknown;
+    };
+
+    const name = manageDataOp.name;
+    if (typeof name !== 'string' || name !== SEP10_NONCE_OP) {
+      continue;
+    }
+
+    const value = manageDataOp.value;
+    if (value instanceof Buffer) {
+      return value.toString('utf8');
+    }
+
+    if (value instanceof Uint8Array) {
+      return Buffer.from(value).toString('utf8');
+    }
+
+    if (typeof value === 'string') {
+      return value;
+    }
+  }
+
+  return null;
+}
+
 export class AnchorExpressRouter {
   private readonly config: AnchorConfig;
   private readonly database: DatabaseAdapter;
   private readonly webhookProcessor: WebhookProcessor;
+  private readonly sep10ServerKeypair: Keypair;
+  private readonly networkPassphrase: string;
+  private readonly maxBodyBytes: number;
+  private readonly rateLimiter = new InMemoryRateLimiter();
+  private readonly rateRules: Record<
+    'auth_challenge' | 'auth_token' | 'webhook' | 'deposit',
+    RateLimitRule
+  >;
 
   constructor(dependencies: RouterDependencies) {
     this.config = dependencies.config;
     this.database = dependencies.database;
     this.webhookProcessor = dependencies.webhookProcessor;
+    this.sep10ServerKeypair = Keypair.fromSecret(this.config.get('security').sep10SigningKey);
+    this.networkPassphrase = this.config.get('network').networkPassphrase ?? '';
+    this.maxBodyBytes = this.config.get('framework').http?.maxBodyBytes ?? 1024 * 1024;
+
+    const rateLimitConfig = this.config.get('framework').rateLimit;
+    const windowMs = rateLimitConfig?.windowMs ?? 60000;
+
+    this.rateRules = {
+      auth_challenge: { windowMs, max: rateLimitConfig?.authChallengeMax ?? 30 },
+      auth_token: { windowMs, max: rateLimitConfig?.authTokenMax ?? 30 },
+      webhook: { windowMs, max: rateLimitConfig?.webhookMax ?? 120 },
+      deposit: { windowMs, max: rateLimitConfig?.depositMax ?? 60 },
+    };
   }
 
   public getMiddleware(): ExpressLikeMiddleware {
@@ -109,10 +222,9 @@ export class AnchorExpressRouter {
           return;
         }
 
-        const message = error instanceof Error ? error.message : 'Internal server error';
         sendJson(res, 500, {
           error: 'internal_server_error',
-          message,
+          message: 'Internal server error',
         });
       });
     };
@@ -139,6 +251,10 @@ export class AnchorExpressRouter {
     }
 
     if (method === 'GET' && path === '/auth/challenge') {
+      if (!this.checkRateLimit(req, res, 'auth_challenge')) {
+        return;
+      }
+
       const account = parseUrl(req).searchParams.get('account');
       if (!account) {
         sendJson(res, 400, {
@@ -148,45 +264,66 @@ export class AnchorExpressRouter {
         return;
       }
 
-      const challenge = jwt.sign(
-        {
-          sub: account,
-          nonce: randomUUID(),
-          typ: 'sep10_challenge',
-        },
-        this.config.get('security').sep10SigningKey,
-        { expiresIn: this.config.get('security').challengeExpirationSeconds ?? 300 },
-      );
+      if (!StrKey.isValidEd25519PublicKey(account)) {
+        sendJson(res, 400, {
+          error: 'invalid_request',
+          message: 'account must be a valid Stellar public key',
+        });
+        return;
+      }
 
-      const decoded = jwt.decode(challenge) as jwt.JwtPayload | null;
-      const expiresAtSeconds = decoded?.exp;
-      const expiresAt =
-        typeof expiresAtSeconds === 'number'
-          ? new Date(expiresAtSeconds * 1000).toISOString()
-          : new Date(Date.now() + 300_000).toISOString();
+      const nonce = randomUUID();
+      const now = Math.floor(Date.now() / 1000);
+      const expirationSeconds = this.config.get('security').challengeExpirationSeconds ?? 300;
+      const expiresAtUnix = now + expirationSeconds;
+
+      const challengeTx = new TransactionBuilder(
+        new Account(this.sep10ServerKeypair.publicKey(), '0'),
+        {
+          fee: '100',
+          networkPassphrase: this.networkPassphrase,
+        },
+      )
+        .addOperation(
+          Operation.manageData({
+            name: SEP10_NONCE_OP,
+            value: nonce,
+            source: account,
+          }),
+        )
+        .setTimebounds(now, expiresAtUnix)
+        .build();
+
+      challengeTx.sign(this.sep10ServerKeypair);
+      const challengeXdr = challengeTx.toXDR();
+      const expiresAt = new Date(expiresAtUnix * 1000).toISOString();
 
       await this.database.insertAuthChallenge({
         id: randomUUID(),
         account,
-        challenge,
+        challenge: nonce,
         expiresAt,
       });
 
       sendJson(res, 200, {
-        challenge,
-        network_passphrase: this.config.get('network').networkPassphrase,
+        challenge: challengeXdr,
+        network_passphrase: this.networkPassphrase,
         expires_at: expiresAt,
       });
       return;
     }
 
     if (method === 'POST' && path === '/auth/token') {
-      const rawBody = await readRawBody(req);
+      if (!this.checkRateLimit(req, res, 'auth_token')) {
+        return;
+      }
+
+      const rawBody = await readRawBody(req, this.maxBodyBytes);
       const body = jsonParseObject(rawBody);
       const account = typeof body.account === 'string' ? body.account : '';
-      const challenge = typeof body.challenge === 'string' ? body.challenge : '';
+      const signedChallenge = typeof body.challenge === 'string' ? body.challenge : '';
 
-      if (!account || !challenge) {
+      if (!account || !signedChallenge) {
         sendJson(res, 400, {
           error: 'invalid_request',
           message: 'Body must include account and challenge',
@@ -194,17 +331,59 @@ export class AnchorExpressRouter {
         return;
       }
 
-      try {
-        jwt.verify(challenge, this.config.get('security').sep10SigningKey);
-      } catch {
-        sendJson(res, 401, {
-          error: 'invalid_challenge',
-          message: 'Challenge signature is invalid',
+      if (!StrKey.isValidEd25519PublicKey(account)) {
+        sendJson(res, 400, {
+          error: 'invalid_request',
+          message: 'account must be a valid Stellar public key',
         });
         return;
       }
 
-      const stored = await this.database.getAuthChallengeByChallenge(challenge);
+      let transaction: Transaction;
+      try {
+        transaction = new Transaction(signedChallenge, this.networkPassphrase);
+      } catch {
+        sendJson(res, 401, {
+          error: 'invalid_challenge',
+          message: 'Challenge transaction is invalid',
+        });
+        return;
+      }
+
+      if (transaction.source !== this.sep10ServerKeypair.publicKey()) {
+        sendJson(res, 401, {
+          error: 'invalid_challenge',
+          message: 'Challenge source account mismatch',
+        });
+        return;
+      }
+
+      const nonce = extractNonceFromChallenge(transaction);
+      if (!nonce) {
+        sendJson(res, 401, {
+          error: 'invalid_challenge',
+          message: 'Challenge nonce missing',
+        });
+        return;
+      }
+
+      if (!hasValidSignature(transaction, this.sep10ServerKeypair.publicKey())) {
+        sendJson(res, 401, {
+          error: 'invalid_challenge',
+          message: 'Challenge is missing anchor signature',
+        });
+        return;
+      }
+
+      if (!hasValidSignature(transaction, account)) {
+        sendJson(res, 401, {
+          error: 'invalid_challenge',
+          message: 'Challenge is missing account signature',
+        });
+        return;
+      }
+
+      const stored = await this.database.getAuthChallengeByChallenge(nonce);
       if (!stored || stored.account !== account) {
         sendJson(res, 401, { error: 'invalid_challenge', message: 'Challenge not found' });
         return;
@@ -237,13 +416,17 @@ export class AnchorExpressRouter {
     }
 
     if (method === 'POST' && path === '/transactions/deposit/interactive') {
+      if (!this.checkRateLimit(req, res, 'deposit')) {
+        return;
+      }
+
       const auth = this.authenticate(req);
       if (!auth) {
         sendJson(res, 401, { error: 'unauthorized', message: 'Missing or invalid bearer token' });
         return;
       }
 
-      const rawBody = await readRawBody(req);
+      const rawBody = await readRawBody(req, this.maxBodyBytes);
       const body = jsonParseObject(rawBody);
       const assetCode = typeof body.asset_code === 'string' ? body.asset_code : '';
       const amountRaw = body.amount;
@@ -373,7 +556,11 @@ export class AnchorExpressRouter {
     }
 
     if (method === 'POST' && path === '/webhooks/events') {
-      const rawBody = await readRawBody(req);
+      if (!this.checkRateLimit(req, res, 'webhook')) {
+        return;
+      }
+
+      const rawBody = await readRawBody(req, this.maxBodyBytes);
       const payload = jsonParseObject(rawBody);
       const eventIdField = payload.id;
       const eventId =
@@ -388,6 +575,7 @@ export class AnchorExpressRouter {
           eventId,
           provider,
           payload,
+          rawBody,
           signature,
         });
 
@@ -396,17 +584,37 @@ export class AnchorExpressRouter {
           duplicate: result.duplicate,
           event_id: result.eventId,
         });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Webhook processing failed';
+      } catch {
         sendJson(res, 400, {
           error: 'webhook_error',
-          message,
+          message: 'Webhook processing failed',
         });
       }
       return;
     }
 
     sendJson(res, 404, { error: 'not_found', message: 'Endpoint not found' });
+  }
+
+  private checkRateLimit(
+    req: IncomingMessage,
+    res: ServerResponse,
+    endpoint: 'auth_challenge' | 'auth_token' | 'webhook' | 'deposit',
+  ): boolean {
+    const clientId = extractClientIdentifier(req);
+    const key = `${endpoint}:${clientId}`;
+    const result = this.rateLimiter.hit(key, this.rateRules[endpoint]);
+
+    if (!result.allowed) {
+      res.setHeader('retry-after', `${result.retryAfterSeconds}`);
+      sendJson(res, 429, {
+        error: 'rate_limited',
+        message: 'Too many requests',
+      });
+      return false;
+    }
+
+    return true;
   }
 
   private authenticate(req: IncomingMessage): AuthenticatedRequestData | null {
